@@ -8,6 +8,11 @@ library(DataExplorer)
 
 #Bringing in Data
 train <- vroom("train.csv")
+test <- vroom("test.csv")
+
+#Wrangling Data
+train <- train |>
+  select(-casual, -registered)
 
 #EDA
 #Barplot of Weather
@@ -37,3 +42,15 @@ plot4 <- plot_missing(train) +
 
 #Putting plots together
 (plot1 + plot2) / (plot3 + plot4)
+
+#Running Linear Regression
+#Fitting Linear Model
+bike_lm <- linear_reg() |>
+  set_engine("lm") |>
+  set_mode("regression") |>
+  fit(formula = count ~ . - datetime, data=train)
+
+#Generating Predictions
+bike_pred <- predict(bike_lm,
+                     new_data=test)
+bike_pred
