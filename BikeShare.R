@@ -53,4 +53,14 @@ bike_lm <- linear_reg() |>
 #Generating Predictions
 bike_pred <- predict(bike_lm,
                      new_data=test)
-bike_pred
+
+#Formatting Predictions for Kaggle
+kaggle <- bike_pred |>
+  bind_cols(test) |> 
+  select(datetime, .pred) |> 
+  rename(count = .pred) |>
+  mutate(count = pmax(0, count)) |> 
+  mutate(datetime = as.character(format(datetime)))
+
+#Making CSV File
+vroom_write(x=kaggle, file="./LinearPreds.csv", delim=",")
