@@ -64,7 +64,7 @@ baked_dataset <- bake(prepped_recipe, new_data = test)
 head(baked_dataset)
 
 ### WORK FLOW ###
-#Defining Linear Regression Model
+# (1) Defining Linear Regression Model
 bike_rlm <- linear_reg() |>
   set_engine("lm") |>
   set_mode("regression")
@@ -89,7 +89,7 @@ kaggle_work <- bike_wpred |>
 #Making CSV File
 vroom_write(x=kaggle_work, file="./Workflow.csv", delim=",")
 
-#Defining Penalized Regression Models
+# (2) Defining Penalized Regression Models
 preg_model1 <- linear_reg(penalty = 0.2, mixture = 0.5) |> #Penalty = 0.2
   set_engine("glmnet") 
 preg_model2 <- linear_reg(penalty = 0.5, mixture = 0.5) |> #Penalty = 0.5
@@ -169,6 +169,113 @@ vroom_write(x=kaggle_preg3, file="./Preg3.csv", delim=",")
 vroom_write(x=kaggle_preg4, file="./Preg4.csv", delim=",")
 vroom_write(x=kaggle_preg5, file="./Preg5.csv", delim=",")
 
+# (3) Running Cross Validation on Penalized Regression Models
+cross_model <- linear_reg(penalty = tune(),
+                          mixture = tune()) |>
+  set_engine("glmnet")
+
+#Creating a Workflow
+cross_wf <- workflow() |>
+  add_recipe(bike_recipe)|>
+  add_model(cross_model)
+
+#Defining Grid of Values
+L <- 5
+grid <- grid_regular(penalty(),
+                     mixture(),
+                     levels = L)
+
+#Splitting Data
+folds <- vfold_cv(train, v = 5, repeats = 1)
+
+#Run Cross Validation
+CV_results <- cross_wf |>
+  tune_grid(resamples = folds,
+            grid = grid,
+            metrics = metric_set(rmse))
+
+#Plotting Cross Validation Results
+collect_metrics(CV_results) |>
+  filter(.metric == "rmse") |>
+  ggplot(aes(x = penalty, y = mean, color = factor(mixture))) +
+  geom_line()
+
+#Find Best Tuning Parameters
+best <- CV_results |>
+  select_best(metric = "rmse")
+
+#Finalizing Workflow
+final_wf <- cross_wf |>
+  finalize_workflow(best) |>
+  fit(data = train)
+
+#Prediction
+cross_pred <- predict(final_wf, new_data = test) |>
+  mutate(.pred = exp(.pred))
+
+#Formatting Predictions for Kaggle
+kaggle_cross <- cross_pred |>
+  bind_cols(test) |> 
+  select(datetime, .pred) |> 
+  rename(count = .pred) |>
+  mutate(count = pmax(0, count)) |> 
+  mutate(datetime = as.character(format(datetime)))
+
+#Making CSV Files
+vroom_write(x=kaggle_cross, file="./Cross.csv", delim=",")
+
+# (4) Running Regression Trees
+tree_model <- decision_tree(tree_depth = tune(),
+                            cost_complexity = tune(),
+                            min_n = tune()) |>
+  set_engine("rpart") |>
+  set_mode("regression")
+
+#Creating a Workflow
+tree_wf <- workflow() |>
+  add_recipe(bike_recipe)|>
+  add_model(tree_model)
+
+#Defining Grid of Values
+L <- 6
+tree_grid <- grid_regular(tree_depth(),
+                     cost_complexity(),
+                     min_n(),
+                     levels = L)
+
+#Splitting Data
+tree_folds <- vfold_cv(train, v = 6, repeats = 1)
+
+#Run Cross Validation
+tree_results <- tree_wf |>
+  tune_grid(resamples = tree_folds,
+            grid = tree_grid,
+            metrics = metric_set(rmse))
+
+#Find Best Tuning Parameters
+tree_best <- tree_results |>
+  select_best(metric = "rmse")
+
+#Finalizing Workflow
+final_twf <- tree_wf |>
+  finalize_workflow(tree_best) |>
+  fit(data = train)
+
+#Prediction
+tree_pred <- predict(final_twf, new_data = test) |>
+  mutate(.pred = exp(.pred))
+
+#Formatting Predictions for Kaggle
+kaggle_tree <- tree_pred |>
+  bind_cols(test) |> 
+  select(datetime, .pred) |> 
+  rename(count = .pred) |>
+  mutate(count = pmax(0, count)) |> 
+  mutate(datetime = as.character(format(datetime)))
+
+#Making CSV Files
+vroom_write(x=kaggle_tree, file="./Tree.csv", delim=",")
+
 ### STANDARD LINEAR REGRESSION ###
 #Fitting Linear Model
 bike_lm <- linear_reg() |>
@@ -190,4 +297,3 @@ kaggle <- bike_pred |>
 
 #Making CSV File
 vroom_write(x=kaggle, file="./LinearPreds.csv", delim=",")
-
