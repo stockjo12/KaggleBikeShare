@@ -7,6 +7,7 @@ library(patchwork)
 library(ggplot2)
 library(DataExplorer)
 library(glmnet)
+library(ranger)
 
 #Bringing in Data
 train <- vroom("train.csv")
@@ -61,6 +62,7 @@ bike_recipe <- recipe(count ~ ., data = train) |>
   step_normalize(all_numeric_predictors())
 prepped_recipe <- prep(bike_recipe)
 baked_dataset <- bake(prepped_recipe, new_data = test)
+maxNumXs <- ncol(baked_dataset)
 head(baked_dataset)
 
 ### WORK FLOW ###
@@ -275,6 +277,57 @@ kaggle_tree <- tree_pred |>
 
 #Making CSV Files
 vroom_write(x=kaggle_tree, file="./Tree.csv", delim=",")
+
+# (5) Running Random Forests
+forest_model <- rand_forest(mtry = tune(),
+                            min_n = tune(),
+                            trees = 1000) |>
+  set_engine("ranger") |>
+  set_mode("regression")
+
+#Creating a Workflow
+forest_wf <- workflow() |>
+  add_recipe(bike_recipe)|>
+  add_model(forest_model)
+
+#Defining Grid of Values
+L <- 3
+forest_grid <- grid_regular(mtry(range = c(1, maxNumXs)),
+                          min_n(),
+                          levels = L)
+
+#Splitting Data
+forest_folds <- vfold_cv(train, v = 3, repeats = 1)
+
+#Run Cross Validation
+forest_results <- forest_wf |>
+  tune_grid(resamples = forest_folds,
+            grid = forest_grid,
+            metrics = metric_set(rmse))
+
+#Find Best Tuning Parameters
+forest_best <- forest_results |>
+  select_best(metric = "rmse")
+
+#Finalizing Workflow
+final_fwf <- forest_wf |>
+  finalize_workflow(forest_best) |>
+  fit(data = train)
+
+#Prediction
+forest_pred <- predict(final_fwf, new_data = test) |>
+  mutate(.pred = exp(.pred))
+
+#Formatting Predictions for Kaggle
+kaggle_forest <- forest_pred |>
+  bind_cols(test) |> 
+  select(datetime, .pred) |> 
+  rename(count = .pred) |>
+  mutate(count = pmax(0, count)) |> 
+  mutate(datetime = as.character(format(datetime)))
+
+#Making CSV Files
+vroom_write(x=kaggle_forest, file="./Forest.csv", delim=",")
 
 ### STANDARD LINEAR REGRESSION ###
 #Fitting Linear Model
