@@ -8,6 +8,8 @@ library(ggplot2)
 library(DataExplorer)
 library(glmnet)
 library(ranger)
+library(bonsai)
+library(dbarts)
 
 #Bringing in Data
 train <- vroom("train.csv")
@@ -328,6 +330,52 @@ kaggle_forest <- forest_pred |>
 
 #Making CSV Files
 vroom_write(x=kaggle_forest, file="./Forest.csv", delim=",")
+
+# (6) Running BART
+bart_model <- parsnip::bart() |>
+  set_engine("dbarts", ntree = tune()) |>
+  set_mode("regression")
+
+#Creating a Workflow
+bart_wf <- workflow() |>
+  add_recipe(bike_recipe)|>
+  add_model(bart_model)
+
+#Defining Grid of Values
+bart_grid <- tibble(ntree = c(50, 200, 500))
+
+#Splitting Data
+bart_folds <- vfold_cv(train, v = 3, repeats = 1)
+
+#Run Cross Validation
+bart_results <- bart_wf |>
+  tune_grid(resamples = bart_folds,
+            grid = bart_grid,
+            metrics = metric_set(rmse))
+
+#Find Best Tuning Parameters
+bart_best <- bart_results |>
+  select_best(metric = "rmse")
+
+#Finalizing Workflow
+final_bwf <- bart_wf |>
+  finalize_workflow(bart_best) |>
+  fit(data = train)
+
+#Prediction
+bart_pred <- predict(final_bwf, new_data = test) |>
+  mutate(.pred = exp(.pred))
+
+#Formatting Predictions for Kaggle
+kaggle_bart <- bart_pred |>
+  bind_cols(test) |> 
+  select(datetime, .pred) |> 
+  rename(count = .pred) |>
+  mutate(count = pmax(0, count)) |> 
+  mutate(datetime = as.character(format(datetime)))
+
+#Making CSV Files
+vroom_write(x=kaggle_bart, file="./Bart.csv", delim=",")
 
 ### STANDARD LINEAR REGRESSION ###
 #Fitting Linear Model
