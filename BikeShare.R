@@ -10,6 +10,7 @@ library(glmnet)
 library(ranger)
 library(bonsai)
 library(dbarts)
+library(agua)
 
 #Bringing in Data
 train <- vroom("train.csv")
@@ -376,6 +377,35 @@ kaggle_bart <- bart_pred |>
 
 #Making CSV Files
 vroom_write(x=kaggle_bart, file="./Bart.csv", delim=",")
+
+# (7) Initialize H2O Session
+h2o::h2o.init()
+
+#Define the Model
+auto_model <- auto_ml() |>
+  set_engine("h2o", max_runtime_secs = 600) |>
+  set_mode("regression")
+
+#Combine into Workflow
+automl_wf <- workflow() |>
+  add_recipe(bike_recipe) |>
+  add_model(auto_model) |>
+  fit(data = train)
+
+#Prediction
+auto_pred <- predict(automl_wf, new_data = test) |>
+  mutate(.pred = exp(.pred))
+
+#Formatting Predictions for Kaggle
+kaggle_auto <- auto_pred |>
+  bind_cols(test) |> 
+  select(datetime, .pred) |> 
+  rename(count = .pred) |>
+  mutate(count = pmax(0, count)) |> 
+  mutate(datetime = as.character(format(datetime)))
+
+#Making CSV Files
+vroom_write(x=kaggle_auto, file="./Auto.csv", delim=",")
 
 ### STANDARD LINEAR REGRESSION ###
 #Fitting Linear Model
