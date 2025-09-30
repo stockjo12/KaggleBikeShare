@@ -11,6 +11,7 @@ library(ranger)
 library(bonsai)
 library(dbarts)
 library(agua)
+library(beepr)
 
 #Bringing in Data
 train <- vroom("train.csv")
@@ -57,7 +58,11 @@ bike_recipe <- recipe(count ~ ., data = train) |>
   step_mutate(weather = factor(weather, levels = c(1,2,3), 
                                labels = c("Clear", "Cloudy", "Severe"))) |>
   step_time(datetime, features = "hour") |>
-  step_rm(datetime) |>
+  step_mutate(
+    hour = factor(datetime_hour),
+    wday = wday(datetime, label = T),
+    is_weekend = wday %in% c("Sat", "Sun")) |>
+  step_rm(datetime, datetime_hour) |>
   step_mutate(season = factor(season, levels = c(1,2,3,4), 
                               labels = c("Spring", "Summer", "Fall", "Winter"))) |>
   step_zv(all_predictors()) |>
@@ -334,7 +339,7 @@ vroom_write(x=kaggle_forest, file="./Forest.csv", delim=",")
 
 # (6) Running BART
 bart_model <- parsnip::bart() |>
-  set_engine("dbarts", ntree = tune()) |>
+  set_engine("dbarts") |>
   set_mode("regression")
 
 #Creating a Workflow
@@ -346,13 +351,14 @@ bart_wf <- workflow() |>
 bart_grid <- tibble(ntree = c(50, 200, 500))
 
 #Splitting Data
-bart_folds <- vfold_cv(train, v = 3, repeats = 1)
+bart_folds <- vfold_cv(train, v = 10, repeats = 2)
 
 #Run Cross Validation
 bart_results <- bart_wf |>
   tune_grid(resamples = bart_folds,
             grid = bart_grid,
             metrics = metric_set(rmse))
+beepr::beep()
 
 #Find Best Tuning Parameters
 bart_best <- bart_results |>
@@ -383,7 +389,7 @@ h2o::h2o.init()
 
 #Define the Model
 auto_model <- auto_ml() |>
-  set_engine("h2o", max_runtime_secs = 600) |>
+  set_engine("h2o", max_runtime_secs = 30*60) |>
   set_mode("regression")
 
 #Combine into Workflow
@@ -391,6 +397,7 @@ automl_wf <- workflow() |>
   add_recipe(bike_recipe) |>
   add_model(auto_model) |>
   fit(data = train)
+beepr::beep()
 
 #Prediction
 auto_pred <- predict(automl_wf, new_data = test) |>
@@ -406,6 +413,26 @@ kaggle_auto <- auto_pred |>
 
 #Making CSV Files
 vroom_write(x=kaggle_auto, file="./Auto.csv", delim=",")
+
+# (8) Data Robot
+#Preparing Data for Data Robot
+baked_dr <- bake(prepped_recipe, new_data = train)
+vroom_write(x=baked_dr, file="./Recipe.csv", delim=",")
+vroom_write(x=baked_dataset, file="./Test_Recipe.csv", delim=",")
+
+#Bringing in Data Robot Predictions
+dbot <- vroom("RoboPreds.csv")
+
+#Formatting Predictions for Kaggle
+kaggle_dbot <- dbot |>
+  bind_cols(test) |> 
+  select(datetime, count_PREDICTION) |> 
+  rename(count = count_PREDICTION) |>
+  mutate(count = pmax(0, exp(count))) |> 
+  mutate(datetime = as.character(format(datetime)))
+
+#Making CSV Files
+vroom_write(x=kaggle_dbot, file="./Data_Robot.csv", delim=",")
 
 ### STANDARD LINEAR REGRESSION ###
 #Fitting Linear Model
