@@ -67,10 +67,10 @@ bike_recipe <- recipe(count ~ ., data = train) |>
                               labels = c("Spring", "Summer", "Fall", "Winter"))) |>
   step_zv(all_predictors()) |>
   step_dummy(all_nominal_predictors()) |>
+  step_interact(terms = ~ starts_with("hour_"):starts_with("wday_")) |>  
   step_normalize(all_numeric_predictors())
 prepped_recipe <- prep(bike_recipe)
 baked_dataset <- bake(prepped_recipe, new_data = test)
-maxNumXs <- ncol(baked_dataset)
 head(baked_dataset)
 
 ### WORK FLOW ###
@@ -299,6 +299,7 @@ forest_wf <- workflow() |>
   add_model(forest_model)
 
 #Defining Grid of Values
+maxNumXs <- ncol(baked_dataset)
 L <- 3
 forest_grid <- grid_regular(mtry(range = c(1, maxNumXs)),
                           min_n(),
@@ -348,7 +349,7 @@ bart_wf <- workflow() |>
   add_model(bart_model)
 
 #Defining Grid of Values
-bart_grid <- tibble(ntree = c(50, 200, 500))
+bart_grid <- tibble(trees = c(50, 200, 500))
 
 #Splitting Data
 bart_folds <- vfold_cv(train, v = 10, repeats = 2)
