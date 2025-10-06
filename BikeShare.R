@@ -57,12 +57,13 @@ bike_recipe <- recipe(count ~ ., data = train) |>
   step_mutate(weather = ifelse(weather == 4, 3, weather)) |>
   step_mutate(weather = factor(weather, levels = c(1,2,3), 
                                labels = c("Clear", "Cloudy", "Severe"))) |>
-  step_time(datetime, features = "hour") |>
   step_mutate(
-    hour = factor(datetime_hour),
+    hour = factor(hour(datetime)),
+    month = factor(month(datetime)),
+    year = factor(year(datetime)),
     wday = wday(datetime, label = T),
     is_weekend = wday %in% c("Sat", "Sun")) |>
-  step_rm(datetime, datetime_hour) |>
+  step_rm(datetime) |>
   step_mutate(season = factor(season, levels = c(1,2,3,4), 
                               labels = c("Spring", "Summer", "Fall", "Winter"))) |>
   step_zv(all_predictors()) |>
